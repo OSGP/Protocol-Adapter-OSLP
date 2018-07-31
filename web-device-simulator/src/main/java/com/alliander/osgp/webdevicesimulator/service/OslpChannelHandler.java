@@ -728,7 +728,10 @@ public class OslpChannelHandler extends SimpleChannelHandler {
 
         final int queryInterval = Minutes.minutesBetween(dateTimeFrom, dateTimeUntil).getMinutes();
         final int totalNumberOfItems = queryInterval / intervalMinutes;
-        final int numberOfPages = (int) Math.ceil((double) totalNumberOfItems / (double) itemsPerPage);
+        int numberOfPages = (int) Math.ceil((double) totalNumberOfItems / (double) itemsPerPage);
+        if (numberOfPages == 0) {
+            numberOfPages = 1;
+        }
 
         // Determine page number
         int currentPageNumber;
@@ -854,8 +857,8 @@ public class OslpChannelHandler extends SimpleChannelHandler {
                 configuration.setOsgpPortNumber(this.configurationOsgpPortNumber);
                 configuration.setIsTestButtonEnabled(false);
                 configuration.setIsAutomaticSummerTimingEnabled(false);
-                configuration.setAstroGateSunRiseOffset(-15);
-                configuration.setAstroGateSunSetOffset(15);
+                configuration.setAstroGateSunRiseOffset(-900);
+                configuration.setAstroGateSunSetOffset(600);
                 configuration.addSwitchingDelay(1);
                 configuration.addSwitchingDelay(2);
                 configuration.addSwitchingDelay(3);

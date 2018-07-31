@@ -16,6 +16,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import com.alliander.osgp.adapter.protocol.oslp.elster.device.DeviceRequest;
 import com.alliander.osgp.adapter.protocol.oslp.elster.device.DeviceResponse;
 import com.alliander.osgp.adapter.protocol.oslp.elster.device.DeviceResponseHandler;
 import com.alliander.osgp.adapter.protocol.oslp.elster.device.requests.SetScheduleDeviceRequest;
@@ -25,10 +26,12 @@ import com.alliander.osgp.adapter.protocol.oslp.elster.infra.messaging.DeviceReq
 import com.alliander.osgp.adapter.protocol.oslp.elster.infra.messaging.OslpEnvelopeProcessor;
 import com.alliander.osgp.dto.valueobjects.RelayTypeDto;
 import com.alliander.osgp.dto.valueobjects.ScheduleDto;
+import com.alliander.osgp.dto.valueobjects.ScheduleMessageDataContainerDto;
+import com.alliander.osgp.dto.valueobjects.ScheduleMessageTypeDto;
 import com.alliander.osgp.oslp.OslpEnvelope;
 import com.alliander.osgp.oslp.SignedOslpEnvelopeDto;
 import com.alliander.osgp.oslp.UnsignedOslpEnvelopeDto;
-import com.alliander.osgp.shared.infra.jms.Constants;
+import com.alliander.osgp.shared.infra.jms.MessageMetadata;
 
 /**
  * Class for processing public lighting set schedule request messages
@@ -42,6 +45,8 @@ public class PublicLightingSetScheduleRequestMessageProcessor extends DeviceRequ
     private static final Logger LOGGER = LoggerFactory
             .getLogger(PublicLightingSetScheduleRequestMessageProcessor.class);
 
+    private static final String LOG_MESSAGE_CALL_DEVICE_SERVICE = "Calling DeviceService function: {} of type {} for domain: {} {}";
+
     public PublicLightingSetScheduleRequestMessageProcessor() {
         super(DeviceRequestMessageType.SET_LIGHT_SCHEDULE);
     }
@@ -50,52 +55,33 @@ public class PublicLightingSetScheduleRequestMessageProcessor extends DeviceRequ
     public void processMessage(final ObjectMessage message) {
         LOGGER.debug("Processing public lighting set schedule request message");
 
-        String correlationUid = null;
-        String domain = null;
-        String domainVersion = null;
-        String messageType = null;
-        String organisationIdentification = null;
-        String deviceIdentification = null;
-        String ipAddress = null;
-        Boolean isScheduled = null;
-        int retryCount = 0;
-
+        MessageMetadata messageMetadata = null;
+        ScheduleDto schedule = null;
         try {
-            correlationUid = message.getJMSCorrelationID();
-            domain = message.getStringProperty(Constants.DOMAIN);
-            domainVersion = message.getStringProperty(Constants.DOMAIN_VERSION);
-            messageType = message.getJMSType();
-            organisationIdentification = message.getStringProperty(Constants.ORGANISATION_IDENTIFICATION);
-            deviceIdentification = message.getStringProperty(Constants.DEVICE_IDENTIFICATION);
-            ipAddress = message.getStringProperty(Constants.IP_ADDRESS);
-            isScheduled = message.getBooleanProperty(Constants.IS_SCHEDULED);
-            retryCount = message.getIntProperty(Constants.RETRY_COUNT);
+            messageMetadata = MessageMetadata.fromMessage(message);
+            schedule = (ScheduleDto) message.getObject();
         } catch (final JMSException e) {
             LOGGER.error("UNRECOVERABLE ERROR, unable to read ObjectMessage instance, giving up.", e);
-            LOGGER.debug("correlationUid: {}", correlationUid);
-            LOGGER.debug("domain: {}", domain);
-            LOGGER.debug("domainVersion: {}", domainVersion);
-            LOGGER.debug("messageType: {}", messageType);
-            LOGGER.debug("organisationIdentification: {}", organisationIdentification);
-            LOGGER.debug("deviceIdentification: {}", deviceIdentification);
-            LOGGER.debug("ipAddress: {}", ipAddress);
-            LOGGER.debug("scheduled: {}", isScheduled);
             return;
         }
 
         try {
-            final ScheduleDto schedule = (ScheduleDto) message.getObject();
+            ScheduleMessageDataContainerDto.Builder builder = new ScheduleMessageDataContainerDto.Builder(schedule);
+            if (schedule.getAstronomicalSunriseOffset() != null || schedule.getAstronomicalSunsetOffset() != null) {
+                builder = builder.withScheduleMessageType(ScheduleMessageTypeDto.RETRIEVE_CONFIGURATION);
+            }
+            final ScheduleMessageDataContainerDto scheduleMessageDataContainer = builder.build();
 
-            LOGGER.info("Calling DeviceService function: {} for domain: {} {}", messageType, domain, domainVersion);
+            this.printDomainInfo(messageMetadata.getMessageType(), messageMetadata.getDomain(),
+                    messageMetadata.getDomainVersion());
 
-            final SetScheduleDeviceRequest deviceRequest = new SetScheduleDeviceRequest(organisationIdentification,
-                    deviceIdentification, correlationUid, schedule, RelayTypeDto.LIGHT, domain, domainVersion,
-                    messageType, ipAddress, retryCount, isScheduled);
+            final SetScheduleDeviceRequest deviceRequest = new SetScheduleDeviceRequest(
+                    DeviceRequest.newBuilder().messageMetaData(messageMetadata), scheduleMessageDataContainer,
+                    RelayTypeDto.LIGHT);
 
             this.deviceService.setSchedule(deviceRequest);
         } catch (final Exception e) {
-            this.handleError(e, correlationUid, organisationIdentification, deviceIdentification, domain, domainVersion,
-                    messageType, retryCount);
+            this.handleError(e, messageMetadata);
         }
     }
 
@@ -110,36 +96,22 @@ public class PublicLightingSetScheduleRequestMessageProcessor extends DeviceRequ
         final String domain = unsignedOslpEnvelopeDto.getDomain();
         final String domainVersion = unsignedOslpEnvelopeDto.getDomainVersion();
         final String messageType = unsignedOslpEnvelopeDto.getMessageType();
+        final int messagePriority = unsignedOslpEnvelopeDto.getMessagePriority();
         final String ipAddress = unsignedOslpEnvelopeDto.getIpAddress();
         final int retryCount = unsignedOslpEnvelopeDto.getRetryCount();
         final boolean isScheduled = unsignedOslpEnvelopeDto.isScheduled();
-        final ScheduleDto scheduleDto = (ScheduleDto) unsignedOslpEnvelopeDto.getExtraData();
+        final ScheduleMessageDataContainerDto scheduleMessageDataContainer = (ScheduleMessageDataContainerDto) unsignedOslpEnvelopeDto
+                .getExtraData();
 
         final SetScheduleDeviceRequest deviceRequest = new SetScheduleDeviceRequest(organisationIdentification,
-                deviceIdentification, correlationUid, scheduleDto, RelayTypeDto.LIGHT, domain, domainVersion,
-                messageType, ipAddress, retryCount, isScheduled);
+                deviceIdentification, correlationUid, scheduleMessageDataContainer, RelayTypeDto.LIGHT, domain,
+                domainVersion, messageType, messagePriority, ipAddress, retryCount, isScheduled);
 
         final DeviceResponseHandler deviceResponseHandler = new DeviceResponseHandler() {
 
-            private final boolean getConfigurationFirst = deviceRequest.getSchedule().isGetConfigurationFirst();
-            private final boolean setAstronomicalOffsets = deviceRequest.getSchedule().isSetAstronomicalOffsets();
-
             @Override
             public void handleResponse(final DeviceResponse deviceResponse) {
-
-                if (this.getConfigurationFirst) {
-                    final GetConfigurationDeviceResponse response = (GetConfigurationDeviceResponse) deviceResponse;
-                    PublicLightingSetScheduleRequestMessageProcessor.this
-                            .handleGetConfigurationBeforeSetScheduleResponse(deviceRequest, response);
-
-                } else if (this.setAstronomicalOffsets) {
-                    PublicLightingSetScheduleRequestMessageProcessor.this
-                            .handleSetScheduleAstronomicalOffsetsResponse(deviceRequest);
-                } else {
-                    PublicLightingSetScheduleRequestMessageProcessor.this.handleEmptyDeviceResponse(deviceResponse,
-                            PublicLightingSetScheduleRequestMessageProcessor.this.responseMessageSender, domain,
-                            domainVersion, messageType, retryCount);
-                }
+                PublicLightingSetScheduleRequestMessageProcessor.this.handleResponse(deviceResponse, deviceRequest);
             }
 
             @Override
@@ -153,29 +125,53 @@ public class PublicLightingSetScheduleRequestMessageProcessor extends DeviceRequ
 
         try {
             this.deviceService.doSetSchedule(oslpEnvelope, deviceRequest, deviceResponseHandler, ipAddress, domain,
-                    domainVersion, messageType, retryCount, isScheduled, scheduleDto.getPageInfo());
+                    domainVersion, messageType, messagePriority, retryCount, isScheduled,
+                    scheduleMessageDataContainer.getPageInfo());
         } catch (final IOException e) {
             this.handleError(e, correlationUid, organisationIdentification, deviceIdentification, domain, domainVersion,
-                    messageType, retryCount);
+                    messageType, messagePriority, retryCount);
         }
+    }
+
+    private void handleResponse(final DeviceResponse deviceResponse, final SetScheduleDeviceRequest deviceRequest) {
+        final ScheduleMessageTypeDto scheduleMessageTypeDto = deviceRequest.getScheduleMessageDataContainer()
+                .getScheduleMessageType();
+
+        switch (scheduleMessageTypeDto) {
+        case RETRIEVE_CONFIGURATION:
+            final GetConfigurationDeviceResponse response = (GetConfigurationDeviceResponse) deviceResponse;
+            this.handleGetConfigurationBeforeSetScheduleResponse(deviceRequest, response);
+            break;
+        case SET_ASTRONOMICAL_OFFSETS:
+            this.handleSetScheduleAstronomicalOffsetsResponse(deviceRequest);
+            break;
+        case SET_SCHEDULE:
+        default:
+            this.handleEmptyDeviceResponse(deviceResponse, this.responseMessageSender, deviceRequest.getDomain(),
+                    deviceRequest.getDomainVersion(), deviceRequest.getMessageType(), deviceRequest.getRetryCount());
+        }
+
     }
 
     private void handleGetConfigurationBeforeSetScheduleResponse(final SetScheduleDeviceRequest deviceRequest,
             final GetConfigurationDeviceResponse deviceResponse) {
         // Configuration is retrieved, so now continue with setting the
         // astronomical offsets
-        LOGGER.info("Calling DeviceService function: {} for domain: {} {}", deviceRequest.getMessageType(),
-                deviceRequest.getDomain(), deviceRequest.getDomainVersion());
+        LOGGER.info(LOG_MESSAGE_CALL_DEVICE_SERVICE, deviceRequest.getMessageType(),
+                ScheduleMessageTypeDto.SET_ASTRONOMICAL_OFFSETS, deviceRequest.getDomain(),
+                deviceRequest.getDomainVersion());
 
-        final ScheduleDto scheduleDto = deviceRequest.getSchedule();
-        scheduleDto.setConfiguration(deviceResponse.getConfiguration());
-        scheduleDto.setGetConfigurationFirst(false);
+        final ScheduleMessageDataContainerDto scheduleMessageDataContainer = new ScheduleMessageDataContainerDto.Builder(
+                deviceRequest.getScheduleMessageDataContainer().getSchedule())
+                        .withConfiguration(deviceResponse.getConfiguration())
+                        .withScheduleMessageType(ScheduleMessageTypeDto.SET_ASTRONOMICAL_OFFSETS).build();
 
         final SetScheduleDeviceRequest newDeviceRequest = new SetScheduleDeviceRequest(
                 deviceRequest.getOrganisationIdentification(), deviceRequest.getDeviceIdentification(),
-                deviceRequest.getCorrelationUid(), scheduleDto, RelayTypeDto.LIGHT, deviceRequest.getDomain(),
-                deviceRequest.getDomainVersion(), deviceRequest.getMessageType(), deviceRequest.getIpAddress(),
-                deviceRequest.getRetryCount(), deviceRequest.isScheduled());
+                deviceRequest.getCorrelationUid(), scheduleMessageDataContainer, RelayTypeDto.LIGHT,
+                deviceRequest.getDomain(), deviceRequest.getDomainVersion(), deviceRequest.getMessageType(),
+                deviceRequest.getMessagePriority(), deviceRequest.getIpAddress(), deviceRequest.getRetryCount(),
+                deviceRequest.isScheduled());
 
         this.deviceService.setSchedule(newDeviceRequest);
     }
@@ -184,18 +180,19 @@ public class PublicLightingSetScheduleRequestMessageProcessor extends DeviceRequ
 
         // Astronomical offsets are set, so now continue with the actual
         // schedule
-        LOGGER.info("Calling DeviceService function: {} for domain: {} {}", deviceRequest.getMessageType(),
-                deviceRequest.getDomain(), deviceRequest.getDomainVersion());
+        LOGGER.info(LOG_MESSAGE_CALL_DEVICE_SERVICE, deviceRequest.getMessageType(),
+                ScheduleMessageTypeDto.SET_SCHEDULE, deviceRequest.getDomain(), deviceRequest.getDomainVersion());
 
-        final ScheduleDto scheduleDto = deviceRequest.getSchedule();
-        scheduleDto.setSetAstronomicalOffsets(false);
-        scheduleDto.setGetConfigurationFirst(false);
+        final ScheduleMessageDataContainerDto scheduleMessageDataContainer = new ScheduleMessageDataContainerDto.Builder(
+                deviceRequest.getScheduleMessageDataContainer().getSchedule())
+                        .withScheduleMessageType(ScheduleMessageTypeDto.SET_SCHEDULE).build();
 
         final SetScheduleDeviceRequest newDeviceRequest = new SetScheduleDeviceRequest(
                 deviceRequest.getOrganisationIdentification(), deviceRequest.getDeviceIdentification(),
-                deviceRequest.getCorrelationUid(), scheduleDto, RelayTypeDto.LIGHT, deviceRequest.getDomain(),
-                deviceRequest.getDomainVersion(), deviceRequest.getMessageType(), deviceRequest.getIpAddress(),
-                deviceRequest.getRetryCount(), deviceRequest.isScheduled());
+                deviceRequest.getCorrelationUid(), scheduleMessageDataContainer, RelayTypeDto.LIGHT,
+                deviceRequest.getDomain(), deviceRequest.getDomainVersion(), deviceRequest.getMessageType(),
+                deviceRequest.getMessagePriority(), deviceRequest.getIpAddress(), deviceRequest.getRetryCount(),
+                deviceRequest.isScheduled());
 
         this.deviceService.setSchedule(newDeviceRequest);
     }
