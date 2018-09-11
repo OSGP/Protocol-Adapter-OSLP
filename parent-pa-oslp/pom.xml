@@ -13,8 +13,8 @@
   <modelVersion>4.0.0</modelVersion>
 
   <artifactId>parent-pa-oslp</artifactId>
-  <groupId>com.alliander.osgp</groupId>
-  <version>4.29.0</version>
+  <groupId>org.opensmartgridplatform</groupId>
+  <version>4.30.0</version>
   <packaging>pom</packaging>
   <name>parent-pa-oslp</name>
   <!-- Description, Organization, Licenses, URL and Distribution Management elements are needed for the maven-jxr-plugin to generate a maven site -->
@@ -44,7 +44,7 @@
     <java.version>1.8</java.version>
     <module.baseUri>${project.baseUri}/../</module.baseUri>
     <osgp.version>${project.version}</osgp.version>
-    <osgp.shared.version>4.29.0</osgp.shared.version>
+    <osgp.shared.version>4.30.0</osgp.shared.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <spring.version>4.3.5.RELEASE</spring.version>
@@ -102,36 +102,36 @@
     <dependencies>
       <!-- Alliander -->
       <dependency>
-        <groupId>com.alliander.osgp</groupId>
+        <groupId>org.opensmartgridplatform</groupId>
         <artifactId>oslp</artifactId>
         <version>${osgp.version}</version>
       </dependency>
       <dependency>
-        <groupId>com.alliander.osgp</groupId>
+        <groupId>org.opensmartgridplatform</groupId>
         <artifactId>osgp-dto</artifactId>
         <version>${osgp.shared.version}</version>
       </dependency>
       <dependency>
-        <groupId>com.alliander.osgp</groupId>
+        <groupId>org.opensmartgridplatform</groupId>
         <artifactId>shared</artifactId>
         <version>${osgp.shared.version}</version>
       </dependency>
 
       <dependency>
-        <groupId>com.alliander.osgp</groupId>
+        <groupId>org.opensmartgridplatform</groupId>
         <artifactId>osgp-core-db-api</artifactId>
         <version>${osgp.version}</version>
       </dependency>
 
       <dependency>
-        <groupId>com.alliander.osgp</groupId>
+        <groupId>org.opensmartgridplatform</groupId>
         <artifactId>osgp-protocol-adapter-oslp-elster</artifactId>
         <version>${osgp.version}</version>
         <classifier>classes</classifier>
       </dependency>
 
       <dependency>
-        <groupId>com.alliander.osgp</groupId>
+        <groupId>org.opensmartgridplatform</groupId>
         <artifactId>signing-server</artifactId>
         <version>${osgp.version}</version>
         <classifier>classes</classifier>
